@@ -11,4 +11,4 @@ services:
 
 volumes:
   dist:
-    name: crowdodge-docs_dist
+    name: e-sharp-docs_dist
