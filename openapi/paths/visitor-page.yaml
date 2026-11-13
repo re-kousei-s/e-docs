@@ -1,0 +1,148 @@
+# 来場者用画面の設定（VisitorPage）
+#
+# 利用者: 主催者・共同主催者
+# 来場者ページの URL 取得と、フロアマップ・スライドショー画像の設定。
+# 画像はまず /images にアップロードして URL を受け取り、その URL を PUT で保存する 2 段階。
+# QR コードは API では作らず、フロントで publicUrl から生成する。
+# 来場者が見る側の API は public.yaml。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events/{eventId}/visitor-page             → events_eventId_visitor-page
+#   /events/{eventId}/visitor-page/images      → events_eventId_visitor-page_images
+# ============================================================
+
+# /events/{eventId}/visitor-page
+events_eventId_visitor-page:
+  get:
+    tags:
+      - VisitorPage
+    summary: 来場者用画面の設定を取得する
+    description: |
+      来場者ページの URL と、フロアマップ・スライドショーの設定を取得する。
+      QR コードはフロントで `publicUrl` から生成する。
+    operationId: getVisitorPage
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: 来場者用画面の設定
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/VisitorPage
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  put:
+    tags:
+      - VisitorPage
+    summary: 来場者用画面の設定を保存する
+    description: |
+      フロアマップ画像とスライドショー画像を保存する。
+      画像は先に `/events/{eventId}/visitor-page/images` でアップロードし、返ってきた URL を指定する。
+    operationId: putVisitorPage
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - floorMapImageUrl
+              - slideImageUrls
+            properties:
+              floorMapImageUrl:
+                description: フロアマップ画像。表示しないなら null
+                oneOf:
+                  - $ref: ../components/schemas.yaml#/ImageUrl
+                  - type: 'null'
+              slideImageUrls:
+                description: スライドショー画像。配列の順が表示順。表示しないなら空配列
+                type: array
+                maxItems: 30
+                items:
+                  $ref: ../components/schemas.yaml#/ImageUrl
+            additionalProperties: false
+    responses:
+      '200':
+        description: 保存後の設定
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/VisitorPage
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/visitor-page/images
+events_eventId_visitor-page_images:
+  post:
+    tags:
+      - VisitorPage
+    summary: 画像をアップロードする
+    description: |
+      来場者用画面で使う画像をアップロードする。
+      形式は PNG / JPEG / WebP、サイズは 1 ファイル 2 MB まで。
+      サイズを超えたら 413、対応していない形式なら 415。
+    operationId: uploadVisitorPageImage
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required:
+              - file
+            properties:
+              file:
+                description: 画像ファイル（PNG / JPEG / WebP、2 MB まで）
+                type: string
+                contentMediaType: image/*
+          encoding:
+            file:
+              contentType: image/png, image/jpeg, image/webp
+    responses:
+      '201':
+        description: アップロードした画像
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  $ref: ../components/schemas.yaml#/ImageUrl
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '413':
+        $ref: ../components/responses.yaml#/ContentTooLarge
+        description: Content Too Large（2 MB を超えている）
+      '415':
+        $ref: ../components/responses.yaml#/UnsupportedMediaType
+        description: Unsupported Media Type（PNG / JPEG / WebP 以外）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+

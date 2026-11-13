@@ -1,0 +1,146 @@
+# WebSocket（Realtime）
+#
+# 利用者: カメラ端末・主催者・来場者
+# WebSocket の接続（ハンドシェイク）だけを定義する。成功時は 101 Switching Protocols。
+# やり取りするメッセージの形は components/messages.yaml。
+# - /ws/devices/{deviceId}: スマホとの接続（映像の受信と、状態の指示）。認証なし。technical-verification の /ws/:id と同じ約束事
+# - /ws/devices/{deviceId}/live: 管理画面で端末の映像を見る（H.264 の中継。ライブ 15fps / サムネイル 1fps）
+# - /ws/events/{eventId}: 主催者ダッシュボードの更新通知
+# - /ws/public/events/{eventId}: 来場者ページの混雑状況の更新通知（認証なし）
+# 主催者向けの 2 本は、接続後の最初のメッセージでアクセストークンを送る（ブラウザの WebSocket はヘッダを付けられないため）。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /ws/devices/{deviceId}                     → ws_devices_deviceId
+#   /ws/devices/{deviceId}/live                → ws_devices_deviceId_live
+#   /ws/events/{eventId}                       → ws_events_eventId
+#   /ws/public/events/{eventId}                → ws_public_events_eventId
+# ============================================================
+
+# /ws/devices/{deviceId}
+ws_devices_deviceId:
+  servers:
+    - url: wss://api.example.com/v1
+      description: 'Production。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: ws://localhost:8080/v1
+      description: Local
+  get:
+    tags:
+      - Realtime
+    summary: スマホとの接続（映像の受信と、状態の指示）
+    description: |-
+      カメラ端末（スマホ）とサーバの WebSocket。1 台 1 本で、送信ページ・アプリを開いている間はつなぎ続ける（切れたら 2 秒ごとにつなぎ直す）。
+      認証なし（検証どおり）。登録されていない端末 ID なら、サーバが接続を閉じる。同じ端末の新しい接続が来たら、古い方を閉じる。
+      - スマホ → サーバ: 映像（バイナリ。H.264 の 1 フレーム、Annex B）と、カメラの能力の報告（テキスト `{"caps": …}`）。`components/messages.yaml` の `CameraClientMessage`
+      - サーバ → スマホ: 状態（テキスト。`components/messages.yaml` の `CameraServerMessage`）。状態が変わったときと、念のため 10 秒ごとに、全体を 1 通で送る
+      スマホは状態に従うだけ。`send_fps` が 0 なら映像を送らない。
+      - 認識中: 5fps（`live.normal_fps`）
+      - 管理画面でリアルタイム表示を見ている人がいる: 15fps・元の解像度（`live.live_fps`）
+      - 一覧のサムネイルに出ている: 1fps（`live.thumb_fps`）
+      - 認識中でなく、誰も見ていない: 0（送らない）
+      見られていない間、スマホは送る解像度を落とす（横 960px）。誰かが新しく見始めたら、`idr: true` でキーフレームを送り直させる。
+    operationId: connectDeviceSocket
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '101':
+        description: WebSocket に切り替わった
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（登録されていない端末）
+
+# /ws/devices/{deviceId}/live
+ws_devices_deviceId_live:
+  servers:
+    - url: wss://api.example.com/v1
+      description: 'Production。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: ws://localhost:8080/v1
+      description: Local
+  get:
+    tags:
+      - Realtime
+    summary: 端末の映像を見る（ライブ・サムネイル）
+    description: |-
+      端末の映像を、サーバでデコードせずにそのまま（H.264）管理画面へ中継する。デコードは管理画面のブラウザ（WebCodecs）が行う。
+      - `thumb=1`: 一覧のサムネイル。端末に 1fps を頼む。時間の上限なし
+      - それ以外: リアルタイム表示。端末に 15fps・元の解像度を頼む。上限 10 分（`live.max_seconds`）で閉じる
+      認識していない端末でも見られる（スマホが接続していれば、見ている間だけ送ってもらう。数えはしない）。
+      サーバは最後のキーフレームから今までを覚えていて、最初に渡すので、途中から見ても映る。
+      認証: ダッシュボードと同じく、接続後の最初のメッセージでアクセストークンを送る（`components/messages.yaml` の `LiveClientMessage`）。無効・この端末のイベントのメンバーでない場合は、サーバが接続を閉じる。
+      サーバ → 画面: `components/messages.yaml` の `LiveServerMessage`（映像のバイナリと、認識結果のテキスト）。
+    operationId: connectDeviceLiveSocket
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+      - name: thumb
+        in: query
+        description: 1 ならサムネイル（1fps）
+        required: false
+        schema:
+          type: integer
+          enum:
+            - 0
+            - 1
+          default: 0
+    responses:
+      '101':
+        description: WebSocket に切り替わった
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+
+# /ws/events/{eventId}
+ws_events_eventId:
+  servers:
+    - url: wss://api.example.com/v1
+      description: 'Production。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: ws://localhost:8080/v1
+      description: Local
+  get:
+    tags:
+      - Realtime
+    summary: ダッシュボードの更新を受け取る
+    description: |
+      主催者画面のダッシュボードに、フロアの状況・端末の状態・イベントの状態の変化を送る。
+      メッセージの形式は `components/messages.yaml` の `DashboardServerMessage`。
+      認証: ブラウザの WebSocket は Authorization ヘッダを付けられないため、接続自体は認証なしで受け付け、
+      接続後の最初のメッセージでアクセストークンを送る（`components/messages.yaml` の `DashboardClientMessage` の `auth`）。
+      - 認証が通るまで、サーバは更新を送らない
+      - 最初のメッセージが `auth` でない、またはトークンが無効・このイベントのメンバーでない場合は、サーバが接続を閉じる
+    operationId: connectDashboardSocket
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '101':
+        description: WebSocket に切り替わった
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+
+# /ws/public/events/{eventId}
+ws_public_events_eventId:
+  servers:
+    - url: wss://api.example.com/v1
+      description: 'Production。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: ws://localhost:8080/v1
+      description: Local
+  get:
+    tags:
+      - Realtime
+    summary: 来場者ページの更新を受け取る
+    description: |
+      来場者ページに、混雑区分が変わるたびに全フロアの状況を送る。認証なし。受信専用（クライアントからは送らない）。
+      初期表示は `GET /public/events/{eventId}` で取得し、以降の更新をここで受け取る。
+      メッセージの形式は `components/messages.yaml` の `PublicServerMessage`。
+    operationId: connectPublicSocket
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '101':
+        description: WebSocket に切り替わった
+      '404':
+        $ref: ../components/responses.yaml#/NotFound

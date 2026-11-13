@@ -1,0 +1,50 @@
+# パスパラメータ
+#
+# {eventId} などのパスパラメータの定義。ID は端末 ID（文字列）以外すべて UUID。
+# 参照するときは "../components/parameters.yaml#/EventId"。
+# ============================================================
+
+DeviceId:
+  name: deviceId
+  in: path
+  description: '端末 ID（管理画面で追加したときに発行。例: F2-789E）'
+  required: true
+  schema:
+    type: string
+
+EventId:
+  name: eventId
+  in: path
+  description: イベント ID
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+FloorId:
+  name: floorId
+  in: path
+  description: フロア ID
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+RentalId:
+  name: rentalId
+  in: path
+  description: 貸与 ID
+  required: true
+  schema:
+    type: string
+    format: uuid
+
+UserId:
+  name: userId
+  in: path
+  description: ユーザ ID
+  required: true
+  schema:
+    type: string
+    format: uuid
+

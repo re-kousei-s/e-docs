@@ -1,0 +1,895 @@
+# 共通スキーマ
+#
+# 2 か所以上のエンドポイントから参照されるモデルだけを置く。1 か所でしか使わないボディは paths/ 側に直接書く。
+# 区切りコメントごとに次の内容が入っている。
+# - 列挙型: イベントの状態・混雑区分・役割・端末の状態・貸与の状態
+# - プロパティ: イベント名・フロア名・画像 URL など、項目単位で使い回す制約付きの型
+# - オブジェクト: Floor / Device / Rental など、レスポンスの部品になるモデル
+# - リクエストボディ / レスポンスボディ: 複数のエンドポイントで同じ形を使うもの
+# - エラー: ProblemDetail（RFC 9457）と、その中のバリデーションエラー Violation
+# 参照するときは "../components/schemas.yaml#/名前"（同じファイル内からは "#/名前"）。
+# ============================================================
+
+# ────────────────────────────
+# 列挙型
+# ────────────────────────────
+
+CongestionLevel:
+  description: |
+    混雑区分。
+    - LOW: 🟢 今が狙い目
+    - MEDIUM: 🟡 混み始め
+    - HIGH: 🟥 今は避けよう
+  type: string
+  enum:
+    - LOW
+    - MEDIUM
+    - HIGH
+
+EventStatus:
+  description: イベントの状態
+  type: string
+  enum:
+    - NOT_STARTED
+    - ONGOING
+    - ENDED
+
+MemberRole:
+  description: イベントでの役割
+  type: string
+  enum:
+    - OWNER
+    - CO_HOST
+
+RentalStatus:
+  description: |
+    貸与の状態。
+    - PENDING_PAYMENT: 申請済み・決済待ち
+    - PAID: 決済完了
+    - SHIPPED: 発送済み（貸与中）
+    - RETURN_SHIPPED: 返却発送済み
+    - RETURNED: 返却受理済み
+    - CANCELED: キャンセル
+  type: string
+  enum:
+    - PENDING_PAYMENT
+    - PAID
+    - SHIPPED
+    - RETURN_SHIPPED
+    - RETURNED
+    - CANCELED
+
+# ────────────────────────────
+# プロパティ
+# ────────────────────────────
+
+EventName:
+  description: イベント名
+  type: string
+  minLength: 1
+  maxLength: 100
+  examples:
+    - E展_2026後期
+
+FloorName:
+  description: フロア名（階層・ブース名）
+  type: string
+  minLength: 1
+  maxLength: 50
+  examples:
+    - 1階_エントランス
+
+ImageUrl:
+  description: 画像の URL
+  type: string
+  format: uri
+  examples:
+    - https://example.com/images/floor-map.png
+
+NullableDateTime:
+  type:
+    - string
+    - 'null'
+  format: date-time
+
+# ────────────────────────────
+# オブジェクト
+# ────────────────────────────
+
+CongestionThresholds:
+  description: |
+    混雑基準。来場者数がこの値以上で区分が上がる。
+    - mediumFrom 未満: LOW
+    - mediumFrom 以上 highFrom 未満: MEDIUM
+    - highFrom 以上: HIGH
+
+    不変条件: mediumFrom < highFrom（満たさない場合は 422）
+  type: object
+  required:
+    - mediumFrom
+    - highFrom
+  properties:
+    mediumFrom:
+      type: integer
+      minimum: 1
+      examples:
+        - 20
+    highFrom:
+      type: integer
+      minimum: 1
+      examples:
+        - 40
+
+Device:
+  description: カメラ端末。管理画面でフロアを指定して追加し、スマホは一覧から自分の端末を選ぶ
+  type: object
+  required:
+    - id
+    - name
+    - eventId
+    - floorId
+    - floorName
+    - recognizing
+    - phoneOnline
+    - streaming
+    - batteryLevel
+    - lastSeenAt
+    - in
+    - out
+    - lines
+  properties:
+    id:
+      description: 端末 ID（追加したときに発行）
+      type: string
+      examples:
+        - F2-789E
+    name:
+      description: 端末名
+      type: string
+      examples:
+        - 階段A
+    eventId:
+      type: string
+      format: uuid
+    floorId:
+      description: 設置するフロア（追加したときに決まる）
+      type: string
+      format: uuid
+    floorName:
+      $ref: '#/FloorName'
+    recognizing:
+      description: 認識中か（管理画面・イベントの開始/終了が決める。スマホはこれが true の間だけ映像を送る）
+      type: boolean
+    phoneOnline:
+      description: スマホが接続していて、指示を受けられるか
+      type: boolean
+    streaming:
+      description: 映像が届いているか
+      type: boolean
+    lastSeenAt:
+      description: スマホから最後に映像または状態を受け取った日時。未受信なら null
+      $ref: '#/NullableDateTime'
+    batteryLevel:
+      description: 'バッテリー残量（%）。未受信なら null。TODO: 検証のスマホは送っていない。送るか決める（現状: 項目だけ定義）'
+      type:
+        - integer
+        - 'null'
+      minimum: 0
+      maximum: 100
+    in:
+      description: この端末の累計 IN
+      type: integer
+      minimum: 0
+    out:
+      description: この端末の累計 OUT
+      type: integer
+      minimum: 0
+    lines:
+      $ref: '#/Lines'
+
+EventSummary:
+  description: イベントの概要（一覧用）
+  type: object
+  required:
+    - id
+    - name
+    - iconUrl
+    - status
+    - role
+    - startedAt
+    - endedAt
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      $ref: '#/EventName'
+    iconUrl:
+      oneOf:
+        - $ref: '#/ImageUrl'
+        - type: 'null'
+    status:
+      $ref: '#/EventStatus'
+    role:
+      description: このイベントでの自分の役割
+      $ref: '#/MemberRole'
+    startedAt:
+      $ref: '#/NullableDateTime'
+    endedAt:
+      $ref: '#/NullableDateTime'
+
+Floor:
+  description: フロアの設定
+  type: object
+  required:
+    - id
+    - name
+    - sortOrder
+    - congestionThresholds
+    - staffCount
+    - deviceCount
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      $ref: '#/FloorName'
+    sortOrder:
+      description: 表示順（0 始まり）
+      type: integer
+      minimum: 0
+    congestionThresholds:
+      description: 混雑基準。未設定なら null
+      oneOf:
+        - $ref: '#/CongestionThresholds'
+        - type: 'null'
+    staffCount:
+      description: 主催者が設定したスタッフ人数
+      type: integer
+      minimum: 0
+    deviceCount:
+      description: このフロアに追加済みのカメラ端末数。0 のフロアはイベント開始前に警告する
+      type: integer
+      minimum: 0
+
+FloorStatus:
+  description: ダッシュボードに表示するフロアの現在の状況
+  type: object
+  required:
+    - floorId
+    - name
+    - sortOrder
+    - estimate
+    - level
+    - staffCount
+    - staffPresentCount
+    - devices
+  properties:
+    floorId:
+      type: string
+      format: uuid
+    name:
+      $ref: '#/FloorName'
+    sortOrder:
+      type: integer
+      minimum: 0
+    estimate:
+      $ref: '#/FloorEstimate'
+    level:
+      description: 現在の混雑区分（estimate.count と混雑基準から判定）。混雑基準が未設定なら null
+      oneOf:
+        - $ref: '#/CongestionLevel'
+        - type: 'null'
+    staffCount:
+      description: 主催者が設定したスタッフ人数
+      type: integer
+      minimum: 0
+    staffPresentCount:
+      description: スタッフ画面で入室中のスタッフ人数
+      type: integer
+      minimum: 0
+    devices:
+      description: このフロアのカメラ端末
+      type: array
+      items:
+        $ref: '#/Device'
+
+FloorEstimate:
+  description: |-
+    フロアの人数の概算（検証と同じ考え方）。
+    - count = そのフロアの全端末・全線の IN − OUT の合算（下限 0）。人数を補正したら、その値から数え直す
+    - 範囲 = 補正してからの通過件数 × 誤差率（仮に 20%）。補正すると通過件数が 0 に戻り、範囲が小さくなる
+  type: object
+  required:
+    - count
+    - low
+    - high
+    - crossingsSinceCorrection
+    - correctedAt
+  properties:
+    count:
+      description: 概算の人数
+      type: integer
+      minimum: 0
+    low:
+      description: 範囲の下限
+      type: integer
+      minimum: 0
+    high:
+      description: 範囲の上限
+      type: integer
+      minimum: 0
+    crossingsSinceCorrection:
+      description: 補正してから今までの通過件数
+      type: integer
+      minimum: 0
+    correctedAt:
+      description: 最後に人数を補正した日時
+      $ref: '#/NullableDateTime'
+
+Invitation:
+  description: 招待
+  type: object
+  required:
+    - id
+    - code
+    - email
+    - expiresAt
+    - createdAt
+  properties:
+    id:
+      type: string
+      format: uuid
+    code:
+      description: 招待コード
+      type: string
+      examples:
+        - K7Q2-9XPA
+    email:
+      description: メールアドレス指定で招待した場合のみ
+      type:
+        - string
+        - 'null'
+      format: email
+    expiresAt:
+      type: string
+      format: date-time
+    createdAt:
+      type: string
+      format: date-time
+
+Crossing:
+  description: 線の通過 1 件（1 行 = 1 人の通過）。Python の worker が書く
+  type: object
+  required:
+    - id
+    - deviceId
+    - floorId
+    - ts
+    - direction
+    - trackId
+    - lineName
+  properties:
+    id:
+      type: integer
+    deviceId:
+      type: string
+    floorId:
+      type: string
+      format: uuid
+    ts:
+      description: フレームの撮影（受信）時刻
+      type: string
+      format: date-time
+    direction:
+      type: string
+      enum:
+        - in
+        - out
+    trackId:
+      description: 追跡 ID
+      type: integer
+    lineName:
+      description: どの線での通過か
+      type:
+        - string
+        - 'null'
+
+RecognitionResult:
+  description: |-
+    worker が出した最新の認識結果（Redis の result:{端末ID} をそのまま返す。キーは検証と同じ snake_case）。
+    10 秒更新がなければ消える（送信が止まれば、古い枠は出なくなる）
+  type: object
+  properties:
+    ts_ms:
+      description: フレームの時刻（ミリ秒）
+      type: integer
+    published_ms:
+      type: integer
+    w:
+      type: integer
+    h:
+      type: integer
+    boxes:
+      description: '[x1, y1, x2, y2, 追跡ID, スコア]（座標は 0〜1 の割合）'
+      type: array
+      items:
+        type: array
+        minItems: 6
+        maxItems: 6
+        items:
+          type: number
+    events:
+      description: 最近の通過（最大 5 件）
+      type: array
+      items:
+        type: object
+        properties:
+          ts_ms:
+            type: integer
+          dir:
+            type: string
+            enum:
+              - in
+              - out
+          id:
+            description: 追跡 ID
+            type: integer
+          line:
+            description: 線の名前
+            type: string
+    infer_ms:
+      type: integer
+    lag_ms:
+      type: integer
+    vectors:
+      description: 人ごとの足元・動きのベクトル・線ごとのスコア（調整用）
+      type: array
+      items: {}
+
+Line:
+  description: |-
+    数える線 1 本。検証（technical-verification）の形と同じ。
+    line は [始点, 終点]。座標は映像に対する 0〜1 の割合。
+    IN の向きは、始点→終点に対して画面の左側。IN/OUT を反転したいときは、始点と終点を入れ替えて保存する。
+    API は線を保存してスマホと worker に渡すだけで、通過の判定は Python の worker が行う。
+  type: object
+  required:
+    - id
+    - name
+    - line
+  properties:
+    id:
+      description: 線の ID（端末の中で一意）
+      type: string
+      examples:
+        - l1
+    name:
+      description: 線の名前（端末の中で重複不可）。通過の記録に入る
+      type: string
+      minLength: 1
+      examples:
+        - 階段の入口
+    line:
+      description: '[[x1, y1], [x2, y2]]'
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items:
+          type: number
+          minimum: 0
+          maximum: 1
+      examples:
+        - - - 0.7
+            - 0.86
+          - - 0.98
+            - 0.79
+
+Lines:
+  description: 端末 1 台の線（1〜12 本。名前の重複は不可）
+  type: array
+  minItems: 1
+  maxItems: 12
+  items:
+    $ref: '#/Line'
+
+CameraSettings:
+  description: |-
+    スマホのカメラの設定。管理画面が決め、スマホは従う。空のオブジェクトならスマホの既定（4:3・ズーム最小）。
+    スマホへの状態メッセージ（camera）にそのまま入るので、キーは検証と同じ snake_case。
+  type: object
+  properties:
+    res:
+      description: 解像度
+      type: string
+      examples:
+        - 1280x960
+    zoom:
+      description: ズーム倍率
+      type: number
+      examples:
+        - 1.0
+    device_id:
+      description: 使うカメラ（広角レンズなど）。スマホが caps で報告した ID
+      type: string
+
+CameraCaps:
+  description: スマホが報告したカメラの能力（カメラの一覧・ズームの範囲・いまの設定）。中身はスマホの実装に任せ、管理画面の選択肢に使う。未報告なら null
+  type:
+    - object
+    - 'null'
+
+Member:
+  description: イベントの主催者・共同主催者
+  type: object
+  required:
+    - userId
+    - email
+    - name
+    - role
+    - joinedAt
+  properties:
+    userId:
+      type: string
+      format: uuid
+    email:
+      type: string
+      format: email
+    name:
+      type:
+        - string
+        - 'null'
+    role:
+      $ref: '#/MemberRole'
+    joinedAt:
+      type: string
+      format: date-time
+
+Price:
+  description: 料金情報
+  type: object
+  required:
+    - amount
+    - currency
+  properties:
+    amount:
+      description: 金額
+      type: integer
+      minimum: 0
+      examples:
+        - 3000
+    currency:
+      description: 通貨コード（ISO 4217）
+      type: string
+      examples:
+        - JPY
+
+PublicFloor:
+  description: 来場者に見せるフロアの混雑状況
+  type: object
+  required:
+    - name
+    - level
+  properties:
+    name:
+      $ref: '#/FloorName'
+    level:
+      description: 混雑区分。判定できない場合は null（「-」表示）
+      oneOf:
+        - $ref: '#/CongestionLevel'
+        - type: 'null'
+
+Rental:
+  description: 貸与
+  type: object
+  required:
+    - id
+    - status
+    - plan
+    - lines
+    - shippingAddress
+    - subtotal
+    - shippingFee
+    - total
+    - appliedAt
+    - shippedAt
+    - returnedAt
+  properties:
+    id:
+      type: string
+      format: uuid
+    status:
+      $ref: '#/RentalStatus'
+    plan:
+      $ref: '#/RentalPlan'
+    lines:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/RentalLine'
+    shippingAddress:
+      description: 申請時点の送付先
+      $ref: '#/ShippingAddress'
+    subtotal:
+      $ref: '#/Price'
+    shippingFee:
+      $ref: '#/Price'
+    total:
+      $ref: '#/Price'
+    appliedAt:
+      type: string
+      format: date-time
+    shippedAt:
+      $ref: '#/NullableDateTime'
+    returnedAt:
+      $ref: '#/NullableDateTime'
+
+RentalItem:
+  description: 貸与できる機材
+  type: object
+  required:
+    - id
+    - name
+    - unitPrice
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+      examples:
+        - スマホ（バッテリー・ケース付き）
+    unitPrice:
+      description: 1 台あたりの料金
+      $ref: '#/Price'
+
+RentalLine:
+  description: 貸与申請の明細
+  type: object
+  required:
+    - itemId
+    - name
+    - quantity
+    - unitPrice
+  properties:
+    itemId:
+      type: string
+      format: uuid
+    name:
+      type: string
+    quantity:
+      type: integer
+      minimum: 1
+    unitPrice:
+      description: 申請時点の単価
+      $ref: '#/Price'
+
+RentalPlan:
+  description: 貸与プラン
+  type: object
+  required:
+    - id
+    - name
+    - days
+    - price
+  properties:
+    id:
+      type: string
+      format: uuid
+    name:
+      type: string
+      examples:
+        - 1日プラン
+    days:
+      description: 貸与日数
+      type: integer
+      minimum: 1
+    price:
+      $ref: '#/Price'
+
+ShippingAddress:
+  description: 貸与機材の送付先
+  type: object
+  required:
+    - name
+    - postalCode
+    - address
+    - phoneNumber
+  properties:
+    name:
+      description: 宛名
+      type: string
+      minLength: 1
+      examples:
+        - E展 運営事務局
+    postalCode:
+      type: string
+      pattern: ^[0-9]{3}-?[0-9]{4}$
+      examples:
+        - 530-0001
+    address:
+      type: string
+      minLength: 1
+      examples:
+        - 大阪府大阪市北区〇〇1-2-3 △△ビル 3階
+    phoneNumber:
+      type: string
+      pattern: ^[0-9-]{10,13}$
+      examples:
+        - 06-1234-5678
+
+# ────────────────────────────
+# リクエストボディ（複数のエンドポイントで使うもの）
+# ────────────────────────────
+
+FloorNameRequest:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      $ref: '#/FloorName'
+  additionalProperties: false
+
+RefreshTokenRequest:
+  type: object
+  required:
+    - refreshToken
+  properties:
+    refreshToken:
+      type: string
+  additionalProperties: false
+
+# ────────────────────────────
+# レスポンスボディ（複数のエンドポイントで使うもの）
+# ────────────────────────────
+
+EventDetail:
+  description: イベントの詳細
+  allOf:
+    - $ref: '#/EventSummary'
+    - type: object
+      required:
+        - floors
+      properties:
+        floors:
+          description: 表示順に並んだフロア
+          type: array
+          items:
+            $ref: '#/Floor'
+
+StaffMe:
+  description: スタッフ画面の表示内容
+  type: object
+  required:
+    - staffId
+    - eventId
+    - currentFloorId
+    - floors
+  properties:
+    staffId:
+      type: string
+      format: uuid
+    eventId:
+      type: string
+      format: uuid
+    currentFloorId:
+      description: 滞在中のフロア。未入室なら null
+      type:
+        - string
+        - 'null'
+      format: uuid
+    floors:
+      description: 選べるフロア（表示順）
+      type: array
+      items:
+        type: object
+        required:
+          - id
+          - name
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            $ref: '#/FloorName'
+
+TokenResponse:
+  type: object
+  required:
+    - accessToken
+    - refreshToken
+    - expiresIn
+  properties:
+    accessToken:
+      type: string
+    refreshToken:
+      type: string
+    expiresIn:
+      description: アクセストークンの有効期間（秒）
+      type: integer
+      examples:
+        - 3600
+  additionalProperties: false
+
+VisitorPage:
+  description: 来場者用画面の設定
+  type: object
+  required:
+    - publicUrl
+    - floorMapImageUrl
+    - slideImageUrls
+  properties:
+    publicUrl:
+      description: 来場者ページの URL。QR はフロントでこの URL から生成する
+      type: string
+      format: uri
+      examples:
+        - https://example.com/v/abc123
+    floorMapImageUrl:
+      oneOf:
+        - $ref: '#/ImageUrl'
+        - type: 'null'
+    slideImageUrls:
+      type: array
+      items:
+        $ref: '#/ImageUrl'
+
+# ────────────────────────────
+# エラー
+# ────────────────────────────
+
+ProblemDetail:
+  description: エラーレスポンス（RFC 9457 Problem Details）
+  type: object
+  required:
+    - type
+    - title
+    - status
+    - code
+  properties:
+    type:
+      description: "エラー種別を表す URI。TODO: 本番ドメインが決まったら pattern を付ける。現状: format: uri だけでドメインの制約はなく、例は仮の https://example.com/problems/<code>"
+      type: string
+      format: uri
+      examples:
+        - https://example.com/problems/FLOOR_NOT_FOUND
+    title:
+      type: string
+      examples:
+        - フロアが見つかりません
+    status:
+      type: integer
+      minimum: 400
+      maximum: 599
+    detail:
+      type:
+        - string
+        - 'null'
+    code:
+      description: エラー理由を機械判定するためのコード
+      type: string
+      examples:
+        - FLOOR_NOT_FOUND
+    violations:
+      type: array
+      items:
+        $ref: '#/Violation'
+
+Violation:
+  type: object
+  required:
+    - field
+    - code
+  properties:
+    field:
+      type: string
+      description: バリデーションエラーが発生した項目名。
+    code:
+      type: string
+      description: エラー理由を機械判定するためのコード。
+

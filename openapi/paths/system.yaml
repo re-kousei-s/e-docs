@@ -1,0 +1,195 @@
+# システム（System）
+#
+# 利用者: インフラ・外部サービス（/system/status は主催者）
+# ヘルスチェック（/health, /ready）、システムの状況（/system/status）、外部決済サービスからの Webhook。
+# ヘルスチェックと Webhook はバージョンプレフィックス（/v1）なしの URL で公開するため、ファイル内で servers を上書きしている。
+# /system/status（管理画面の「システム」ページ）は /v1 の下。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /health                                    → health
+#   /ready                                     → ready
+#   /webhooks/payment                          → webhooks_payment
+#   /system/status                             → system_status
+# ============================================================
+
+# /health
+health:
+  servers:
+    - url: https://api.example.com
+      description: 'Production system endpoint。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: http://localhost:8080
+      description: Local system endpoint
+  get:
+    tags:
+      - System
+    summary: ヘルスチェック（liveness）
+    description: |
+      プロセスが稼働中かどうかを返す。認証不要。
+    operationId: getHealth
+    security: []
+    responses:
+      '200':
+        description: プロセスは稼働中
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  const: UP
+
+# /ready
+ready:
+  servers:
+    - url: https://api.example.com
+      description: 'Production system endpoint。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: http://localhost:8080
+      description: Local system endpoint
+  get:
+    tags:
+      - System
+    summary: ヘルスチェック（readiness）
+    description: |
+      DB などの依存先に接続でき、リクエストを受けられるかを返す。認証不要。
+    operationId: getReady
+    security: []
+    responses:
+      '503':
+        description: 依存先に接続できない
+      '200':
+        description: リクエストを受けられる
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  const: READY
+
+# /webhooks/payment
+webhooks_payment:
+  servers:
+    - url: https://api.example.com
+      description: 'Production system endpoint。TODO: 本番ドメインを決める（現状: 仮の api.example.com）'
+    - url: http://localhost:8080
+      description: Local system endpoint
+  post:
+    tags:
+      - System
+    summary: 決済結果の受信
+    description: |
+      外部決済サービスから決済結果を受け取り、貸与申請を確定（PAID）またはキャンセルする。認証不要（署名で検証する）。
+      TODO: 決済サービスが決まったら、署名ヘッダとボディの形式を確定する。
+      現状: ボディは任意の JSON オブジェクト、署名ヘッダは未定義。署名の検証に失敗したら 400、受理したら 204 を返す。
+    operationId: receivePaymentWebhook
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            description: '決済サービスごとの形式。TODO: サービス決定後に定義する（現状: 任意の JSON オブジェクト）'
+            type: object
+    responses:
+      '400':
+        description: 署名の検証に失敗した。レスポンスボディは返さない。
+      '204':
+        description: 通知を受理した
+
+# /system/status
+system_status:
+  get:
+    tags:
+      - System
+    summary: システムの状況を取得する
+    description: |-
+      管理画面の「システム」ページ用。各サービスの死活、認識のキューの待ち、worker の処理状況、問題の一覧。
+      ほかの API と同じく /v1 の下で公開する（主催者のトークンで認証）。
+    operationId: getSystemStatus
+    responses:
+      '200':
+        description: システムの状況
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - services
+                - problems
+                - queue
+                - backlog
+                - workers
+              properties:
+                services:
+                  type: object
+                  properties:
+                    backend:
+                      type: boolean
+                    redis:
+                      type: boolean
+                    postgres:
+                      type: boolean
+                    workersAlive:
+                      type: integer
+                    workersTotal:
+                      type: integer
+                problems:
+                  description: 画面に赤い帯で出す問題（worker 停止・キューの滞留など）
+                  type: array
+                  items:
+                    type: string
+                queue:
+                  description: パーティションごとの認識のキュー
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      partition:
+                        type: integer
+                      length:
+                        description: 待ち
+                        type: integer
+                      pending:
+                        description: 処理中（未 ACK）
+                        type: integer
+                      lag:
+                        description: 未配信
+                        type:
+                          - integer
+                          - 'null'
+                backlog:
+                  description: キューの待ちの合計
+                  type: integer
+                workers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      detector:
+                        type: string
+                      partitions:
+                        type: string
+                      processed:
+                        type: integer
+                      errors:
+                        type: integer
+                      inferMsAvg:
+                        description: 推論時間の平均
+                        type: number
+                      lagMsAvg:
+                        description: 遅れの平均
+                        type: number
+                      alive:
+                        type: boolean
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

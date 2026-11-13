@@ -1,0 +1,343 @@
+# 端末管理・主催者側（Devices）
+#
+# 利用者: 主催者・共同主催者
+# カメラ端末の追加（フロアを指定）・一覧・詳細・削除、線の編集、カメラの設定、認識の開始・停止（端末ごと）、検出枠つき画像。
+# スマホ側の API は camera.yaml、映像のライブ表示は realtime.yaml の /ws/devices/{deviceId}/live。
+# イベント内の全端末の一括開始・停止は、events.yaml のイベント開始・終了が兼ねる。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /devices                                   → devices
+#   /devices/{deviceId}                        → devices_deviceId
+#   /devices/{deviceId}/lines                  → devices_deviceId_lines
+#   /devices/{deviceId}/camera-settings        → devices_deviceId_camera-settings
+#   /devices/{deviceId}/recognize              → devices_deviceId_recognize
+#   /devices/{deviceId}/frame.jpg              → devices_deviceId_frame.jpg
+# ============================================================
+
+# /devices
+devices:
+  get:
+    tags:
+      - Devices
+    summary: 端末一覧を取得する
+    description: 自分が主催・共同主催しているイベントのカメラ端末を取得する。
+    operationId: listDevices
+    parameters:
+      - name: eventId
+        in: query
+        description: 指定するとそのイベントの端末だけ
+        required: false
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: 端末一覧
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/Device
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  post:
+    tags:
+      - Devices
+    summary: 端末を追加する
+    description: |-
+      フロアを指定してカメラ端末を追加し、端末 ID を発行する。スマホはこの端末を一覧（`GET /camera/devices`）から選ぶ。
+      線は 1 本（画面の中央の横線）で作られる。あとから `PUT /devices/{deviceId}/lines` で直す。
+    operationId: createDevice
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - floorId
+              - name
+            additionalProperties: false
+            properties:
+              floorId:
+                type: string
+                format: uuid
+              name:
+                type: string
+                minLength: 1
+                maxLength: 30
+                examples:
+                  - 階段A
+    responses:
+      '201':
+        description: 追加した端末
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Device
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（フロアが存在しない）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}
+devices_deviceId:
+  get:
+    tags:
+      - Devices
+    summary: 端末の詳細を取得する
+    description: 端末のページに出す情報。受信の状況、スマホが報告したカメラの能力、カメラの設定、線ごとの IN/OUT。
+    operationId: getDevice
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '200':
+        description: 端末の詳細
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: ../components/schemas.yaml#/Device
+                - type: object
+                  required:
+                    - caps
+                    - cameraSettings
+                    - lineCounts
+                    - stats
+                  properties:
+                    caps:
+                      $ref: ../components/schemas.yaml#/CameraCaps
+                    cameraSettings:
+                      $ref: ../components/schemas.yaml#/CameraSettings
+                    lineCounts:
+                      description: 線の名前 → その線の IN/OUT
+                      type: object
+                      additionalProperties:
+                        type: object
+                        required:
+                          - in
+                          - out
+                        properties:
+                          in:
+                            type: integer
+                          out:
+                            type: integer
+                    stats:
+                      description: 受信・処理の数字
+                      type: object
+                      properties:
+                        rxFps:
+                          description: 受信しているフレームレート
+                          type:
+                            - number
+                            - 'null'
+                        rxKbps:
+                          type: number
+                        txKbps:
+                          type: number
+                        decoded:
+                          description: デコードしたフレーム数
+                          type: integer
+                        enqueued:
+                          description: 認識のキューに入れたフレーム数
+                          type: integer
+                        dropped:
+                          description: キューが溢れて捨てたフレーム数
+                          type: integer
+                        decodeErrors:
+                          type: integer
+                        lastDets:
+                          description: 最後のフレームの検出数
+                          type:
+                            - integer
+                            - 'null'
+                        lastFrameAt:
+                          $ref: ../components/schemas.yaml#/NullableDateTime
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  delete:
+    tags:
+      - Devices
+    summary: 端末を削除する
+    description: 端末を削除する。スマホが接続中なら切断する（スマホは登録がないと知って、つなぎ直さない）。通過の記録は残る。
+    operationId: deleteDevice
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '204':
+        description: 削除した
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}/lines
+devices_deviceId_lines:
+  put:
+    tags:
+      - Devices
+    summary: 線を保存する
+    description: |-
+      管理画面で編集した線を保存する（1〜12 本、名前の重複は不可）。
+      保存すると、接続中のスマホにも状態メッセージで同じ線が届き、数秒後に worker の判定にも反映される。
+    operationId: putDeviceLines
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/Lines
+    responses:
+      '200':
+        description: 保存後の端末
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Device
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（0 本・13 本以上・名前の重複）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}/camera-settings
+devices_deviceId_camera-settings:
+  put:
+    tags:
+      - Devices
+    summary: カメラの設定を変える
+    description: |-
+      スマホのカメラ（レンズ）・解像度・ズームを指定する。選択肢はスマホが報告した caps から選ぶ。
+      保存すると、接続中のスマホに状態メッセージで届き、スマホが映像を取り直す。
+    operationId: putDeviceCameraSettings
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/CameraSettings
+    responses:
+      '200':
+        description: 保存後の設定
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/CameraSettings
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}/recognize
+devices_deviceId_recognize:
+  put:
+    tags:
+      - Devices
+    summary: 認識を開始・停止する（端末ごと）
+    description: |-
+      この端末の認識を開始・停止する。状態は DB に残し（再起動しても続きから再開）、接続中のスマホに状態メッセージで伝える。
+      イベントの開始・終了でも、イベント内の全端末がまとめて開始・停止する。途中で 1 台だけ止める・再開するときに使う。
+    operationId: putDeviceRecognize
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - 'on'
+            additionalProperties: false
+            properties:
+              'on':
+                type: boolean
+    responses:
+      '200':
+        description: 変更後の端末
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Device
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}/frame.jpg
+devices_deviceId_frame.jpg:
+  get:
+    tags:
+      - Devices
+    summary: 検出枠つきの画像を取得する
+    description: worker が描いた、検出枠つきの最新の静止画（約 1 秒ごとに更新、2 分で消える）。
+    operationId: getDeviceAnnotatedFrame
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '200':
+        description: 検出枠つきの画像
+        headers:
+          Cache-Control:
+            schema:
+              type: string
+              examples:
+                - no-store
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              contentMediaType: image/jpeg
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（まだ画像がない）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

@@ -1,0 +1,67 @@
+# 来場者ページ（Public）
+#
+# 利用者: 来場者（認証なし）
+# QR から開く来場者ページの内容取得。以降の更新は realtime.yaml の /ws/public/events/{eventId}（WebSocket）で受け取る。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /public/events/{eventId}                   → public_events_eventId
+# ============================================================
+
+# /public/events/{eventId}
+public_events_eventId:
+  get:
+    tags:
+      - Public
+    summary: 来場者ページを取得する
+    description: |
+      QR から開く来場者ページの内容（フロア別の混雑区分・フロアマップ・スライドショー）を取得する。ログイン不要。
+      URL には eventId をそのまま使う（公開用の ID は別に発行しない）。
+    operationId: getPublicEvent
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: 来場者ページの内容
+        content:
+          application/json:
+            schema:
+              description: 来場者ページの表示内容
+              type: object
+              required:
+                - name
+                - iconUrl
+                - status
+                - floors
+                - floorMapImageUrl
+                - slideImageUrls
+                - updatedAt
+              properties:
+                name:
+                  $ref: ../components/schemas.yaml#/EventName
+                iconUrl:
+                  oneOf:
+                    - $ref: ../components/schemas.yaml#/ImageUrl
+                    - type: 'null'
+                status:
+                  $ref: ../components/schemas.yaml#/EventStatus
+                floors:
+                  description: 表示順に並んだフロアの混雑状況
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/PublicFloor
+                floorMapImageUrl:
+                  oneOf:
+                    - $ref: ../components/schemas.yaml#/ImageUrl
+                    - type: 'null'
+                slideImageUrls:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/ImageUrl
+                updatedAt:
+                  type: string
+                  format: date-time
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

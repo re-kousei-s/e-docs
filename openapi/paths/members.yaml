@@ -1,0 +1,171 @@
+# 共同主催者（Members）
+#
+# 利用者: 主催者・共同主催者
+# メンバー（主催者・共同主催者）と承諾待ち招待の一覧、共同主催者の除外、招待の発行・承諾。
+# 招待メールの送信はサーバ内部処理なので API はない。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events/{eventId}/members                  → events_eventId_members
+#   /events/{eventId}/members/{userId}         → events_eventId_members_userId
+#   /events/{eventId}/invitations              → events_eventId_invitations
+#   /invitations/accept                        → invitations_accept
+# ============================================================
+
+# /events/{eventId}/members
+events_eventId_members:
+  get:
+    tags:
+      - Members
+    summary: 主催者・共同主催者を取得する
+    description: |
+      イベントの主催者・共同主催者と、承諾待ちの招待を取得する。
+    operationId: listMembers
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: メンバー一覧
+        content:
+          application/json:
+            schema:
+              description: 主催者・共同主催者と、承諾待ちの招待
+              type: object
+              required:
+                - members
+                - pendingInvitations
+              properties:
+                members:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/Member
+                pendingInvitations:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/Invitation
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/members/{userId}
+events_eventId_members_userId:
+  delete:
+    tags:
+      - Members
+    summary: 共同主催者を外す
+    description: |
+      共同主催者をイベントから外す。OWNER だけが実行できる。OWNER 自身は外せない（422）。
+    operationId: removeMember
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+      - $ref: ../components/parameters.yaml#/UserId
+    responses:
+      '204':
+        description: 外した
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（OWNER を外そうとした）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/invitations
+events_eventId_invitations:
+  post:
+    tags:
+      - Members
+    summary: 共同主催者を招待する
+    description: |
+      招待コードを発行する。メールアドレスを指定した場合は招待メールも送る（送信は内部処理）。
+    operationId: createInvitation
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              email:
+                description: 招待メールを送る宛先。省略すると招待コードだけ発行する
+                type: string
+                format: email
+            additionalProperties: false
+    responses:
+      '201':
+        description: 発行した招待
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Invitation
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /invitations/accept
+invitations_accept:
+  post:
+    tags:
+      - Members
+    summary: 招待を承諾する
+    description: |
+      招待コードを入力して、イベントの共同主催者になる。
+    operationId: acceptInvitation
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - code
+            properties:
+              code:
+                description: 招待コード
+                type: string
+            additionalProperties: false
+    responses:
+      '200':
+        description: 参加したイベント
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - event
+              properties:
+                event:
+                  $ref: ../components/schemas.yaml#/EventSummary
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（コードが存在しない）
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（すでにメンバー）
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（期限切れ・取り消し済み）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+

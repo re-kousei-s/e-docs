@@ -1,0 +1,296 @@
+# フロア（Floors）
+#
+# 利用者: 主催者・共同主催者
+# フロアの追加・並び替え・名前変更・削除と、フロアごとの混雑設定。
+# - 混雑基準（congestion-thresholds）: 区分が上がる人数のしきい値
+# - 人数の補正（count）: スタッフが数えた人数を設定し、そこから数え直す（technical-verification の「人数を補正」）
+# - スタッフ人数（staff-count）: 主催者が設定する人数。スタッフ画面での入退室は staff.yaml
+# カメラ端末の追加は devices.yaml（フロアを指定して追加する）。
+# 作成・並び替えはイベントの下（/events/{eventId}/floors）、それ以外はフロア ID だけで指す（/floors/{floorId}）。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events/{eventId}/floors                   → events_eventId_floors
+#   /events/{eventId}/floors/order             → events_eventId_floors_order
+#   /floors/{floorId}                          → floors_floorId
+#   /floors/{floorId}/congestion-thresholds    → floors_floorId_congestion-thresholds
+#   /floors/{floorId}/count                    → floors_floorId_count
+#   /floors/{floorId}/staff-count              → floors_floorId_staff-count
+# ============================================================
+
+# /events/{eventId}/floors
+events_eventId_floors:
+  post:
+    tags:
+      - Floors
+    summary: フロアを追加する
+    description: |
+      フロアを末尾に追加する。
+    operationId: createFloor
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/FloorNameRequest
+    responses:
+      '201':
+        description: 追加したフロア
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Floor
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/floors/order
+events_eventId_floors_order:
+  put:
+    tags:
+      - Floors
+    summary: フロアを並び替える
+    description: |
+      イベント内の全フロアを新しい表示順で送る。過不足があれば 422。
+    operationId: reorderFloors
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - floorIds
+            properties:
+              floorIds:
+                description: イベント内の全フロア ID を新しい表示順で並べた配列
+                type: array
+                minItems: 1
+                uniqueItems: true
+                items:
+                  type: string
+                  format: uuid
+            additionalProperties: false
+    responses:
+      '200':
+        description: 並び替え後のフロア一覧
+        content:
+          application/json:
+            schema:
+              description: 表示順に並んだフロア一覧
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/Floor
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（フロアの過不足）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}
+floors_floorId:
+  patch:
+    tags:
+      - Floors
+    summary: フロア名を変更する
+    description: |
+      フロア名を変更する。
+    operationId: renameFloor
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/FloorNameRequest
+    responses:
+      '200':
+        description: 変更後のフロア
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Floor
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  delete:
+    tags:
+      - Floors
+    summary: フロアを削除する
+    description: |
+      フロアを削除する。イベントの最後の 1 フロアは削除できない（422）。
+      TODO: カメラ端末が残っているフロアを削除したときの扱いを決める（端末も一緒に削除する / 端末があれば削除できない）。
+      現状: 未定義。
+    operationId: deleteFloor
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    responses:
+      '204':
+        description: 削除した
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（開催中のイベント）
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（最後の 1 フロア）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/congestion-thresholds
+floors_floorId_congestion-thresholds:
+  put:
+    tags:
+      - Floors
+    summary: 混雑基準を設定する
+    description: |
+      フロアの混雑基準を設定し、混雑区分を再判定する。
+    operationId: putCongestionThresholds
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/CongestionThresholds
+    responses:
+      '200':
+        description: 設定後のフロア
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Floor
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（mediumFrom >= highFrom）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/count
+floors_floorId_count:
+  put:
+    tags:
+      - Floors
+    summary: 人数を補正する
+    description: |-
+      スタッフが数えた実際の人数を設定する。そこから IN − OUT で数え直し、概算の範囲（補正してからの通過件数 × 誤差率）も 0 から数え直す。
+      混雑区分は、補正した人数と混雑基準から判定し直す。
+    operationId: putFloorCount
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - count
+            additionalProperties: false
+            properties:
+              count:
+                type: integer
+                minimum: 0
+                examples:
+                  - 12
+    responses:
+      '200':
+        description: 補正後の概算
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/FloorEstimate
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/staff-count
+floors_floorId_staff-count:
+  put:
+    tags:
+      - Floors
+    summary: スタッフ人数を設定する
+    description: |
+      混雑計測前から入室済み・頻繁に出入りする予定のスタッフ人数を設定し、混雑区分を再判定する。
+    operationId: putStaffCount
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - staffCount
+            properties:
+              staffCount:
+                type: integer
+                minimum: 0
+                examples:
+                  - 5
+            additionalProperties: false
+    responses:
+      '200':
+        description: 設定後のフロア
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Floor
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

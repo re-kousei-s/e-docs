@@ -1,0 +1,150 @@
+# 通過の履歴（Crossings）
+#
+# 利用者: 主催者・共同主催者
+# 線の通過（IN/OUT）の記録の取得と、記録のリセット（イベント / フロア / 端末の単位）。
+# 記録は Python の worker が書く。リセットしても、フロアの人数の概算は変わらない。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events/{eventId}/crossings                → events_eventId_crossings
+#   /floors/{floorId}/crossings                → floors_floorId_crossings
+#   /devices/{deviceId}/crossings              → devices_deviceId_crossings
+# ============================================================
+
+# /events/{eventId}/crossings
+events_eventId_crossings:
+  get:
+    tags:
+      - Crossings
+    summary: 通過の履歴を取得する
+    description: いつ・どの端末・どの線で IN か OUT かの記録を、新しい順に取得する。
+    operationId: listCrossings
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+      - name: floorId
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: deviceId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+    responses:
+      '200':
+        description: 通過の履歴
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/Crossing
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  delete:
+    tags:
+      - Crossings
+    summary: イベントの通過の履歴を消す
+    description: イベント内の全端末の通過の記録と、端末ごとの累計 IN/OUT を消す。フロアの人数の概算は変わらない（人数を戻すのは、人数の補正かイベント終了）。
+    operationId: deleteEventCrossings
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: 消した件数
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deletedCrossings
+              properties:
+                deletedCrossings:
+                  type: integer
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/crossings
+floors_floorId_crossings:
+  delete:
+    tags:
+      - Crossings
+    summary: フロアの通過の履歴を消す
+    description: フロア内の端末の通過の記録と累計 IN/OUT を消す。フロアの人数の概算は変わらない（人数を戻すのは、人数の補正かイベント終了）。
+    operationId: deleteFloorCrossings
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    responses:
+      '200':
+        description: 消した件数
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deletedCrossings
+              properties:
+                deletedCrossings:
+                  type: integer
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /devices/{deviceId}/crossings
+devices_deviceId_crossings:
+  delete:
+    tags:
+      - Crossings
+    summary: 端末の通過の履歴を消す
+    description: この端末の通過の記録と累計 IN/OUT を消す。フロアの人数の概算は変わらない（人数を戻すのは、人数の補正かイベント終了）。
+    operationId: deleteDeviceCrossings
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '200':
+        description: 消した件数
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deletedCrossings
+              properties:
+                deletedCrossings:
+                  type: integer
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

@@ -1,0 +1,156 @@
+# WebSocket のメッセージ
+#
+# OpenAPI では WebSocket のメッセージを表現できないため、メッセージの形をここに JSON Schema で定義し、realtime.yaml の description から名前で参照する。
+# - CameraClientMessage / CameraServerMessage: /ws/devices/{deviceId}（スマホ → サーバ / サーバ → スマホ）。technical-verification と同じ形
+# - LiveClientMessage / LiveServerMessage: /ws/devices/{deviceId}/live（管理画面 → サーバ / サーバ → 管理画面）
+# - DashboardClientMessage / DashboardServerMessage: /ws/events/{eventId}（主催者画面 → サーバ / サーバ → 主催者画面）
+# - PublicServerMessage: /ws/public/events/{eventId}（サーバ → 来場者ページ）
+# 映像（H.264）はバイナリメッセージで送り、ここでは定義しない。主催者画面・来場者ページのメッセージは type フィールドで種類を見分ける。
+# ============================================================
+
+CameraClientMessage:
+  description: |-
+    スマホ → サーバ（`/ws/devices/{deviceId}`）。technical-verification と同じ形
+    - バイナリメッセージ: 映像。1 メッセージ = H.264 の 1 フレーム（Annex B。キーフレームには SPS/PPS を付ける）。ここでは定義しない
+    - テキスト `{"caps": …}`: カメラの能力の報告（カメラの一覧・ズームの範囲・いまの設定）。接続したときと、変わったときに送る
+    TODO: バッテリー残量を送るか決める（現状: 検証のスマホは送っていない。Device.batteryLevel は項目だけある）
+  type: object
+  required:
+    - caps
+  properties:
+    caps:
+      $ref: ./schemas.yaml#/CameraCaps
+
+CameraServerMessage:
+  description: |-
+    サーバ → スマホ（`/ws/devices/{deviceId}`）。technical-verification と同じ形（キーは snake_case）
+    状態が変わったとき・念のため 10 秒ごとに、全体を 1 通で送る。スマホはこれに従うだけ（命令を何種類も送らないので、再接続しても取りこぼさない）
+  type: object
+  required:
+    - recognize
+    - send_fps
+    - preview
+    - idr
+    - camera
+    - lines
+  properties:
+    recognize:
+      description: 認識中か（画面の表示に使う）
+      type: boolean
+    send_fps:
+      description: 映像を送る fps。0 なら送らない（カメラも止めてよい）
+      type: number
+      minimum: 0
+      examples:
+        - 5
+    preview:
+      description: 管理画面でリアルタイム表示を見ている人がいるか。false の間は解像度を落として送る（横 960px）
+      type: boolean
+    idr:
+      description: true ならキーフレーム（IDR）を送り直す（誰かが新しく見始めた）
+      type: boolean
+    camera:
+      $ref: ./schemas.yaml#/CameraSettings
+    lines:
+      description: 数える線（スマホの画面に重ねる）
+      $ref: ./schemas.yaml#/Lines
+  examples:
+    - recognize: true
+      send_fps: 5
+      preview: false
+      idr: false
+      camera: {}
+      lines:
+        - id: l1
+          name: 階段の入口
+          line:
+            - - 0.7
+              - 0.86
+            - - 0.98
+              - 0.79
+
+LiveClientMessage:
+  description: |-
+    管理画面 → サーバ（`/ws/devices/{deviceId}/live`）
+    - auth: 接続直後の最初のメッセージ。形はダッシュボードの `DashboardClientMessage` と同じ
+  $ref: '#/DashboardClientMessage'
+
+LiveServerMessage:
+  description: |-
+    サーバ → 管理画面（`/ws/devices/{deviceId}/live`）
+    - バイナリメッセージ: 映像。1 メッセージ = H.264 の 1 フレーム（Annex B）。スマホから届いたものをそのまま中継する。ここでは定義しない
+    - テキスト: 認識結果（検出枠・最近の通過）。変わったときだけ（約 0.25 秒ごとに確かめて）送る。中身は `RecognitionResult`
+  $ref: ./schemas.yaml#/RecognitionResult
+
+DashboardClientMessage:
+  description: |
+    主催者画面 → サーバ（`/ws/events/{eventId}`）
+    - auth: 接続直後の最初のメッセージ。アクセストークンを送って認証する
+  oneOf:
+    - type: object
+      required:
+        - type
+        - accessToken
+      properties:
+        type:
+          const: auth
+        accessToken:
+          description: '`/auth/google` で発行したアクセストークン'
+          type: string
+
+DashboardServerMessage:
+  description: |
+    サーバ → 主催者画面（`/ws/events/{eventId}`）
+    - floor.updated: フロアの人数・混雑区分・スタッフ人数が変わった
+    - device.updated: カメラ端末の状態（バッテリー・観測状態・割り当て）が変わった
+    - event.updated: イベントの状態が変わった
+  oneOf:
+    - type: object
+      required:
+        - type
+        - floor
+      properties:
+        type:
+          const: floor.updated
+        floor:
+          $ref: ./schemas.yaml#/FloorStatus
+    - type: object
+      required:
+        - type
+        - device
+      properties:
+        type:
+          const: device.updated
+        device:
+          $ref: ./schemas.yaml#/Device
+    - type: object
+      required:
+        - type
+        - status
+      properties:
+        type:
+          const: event.updated
+        status:
+          $ref: ./schemas.yaml#/EventStatus
+
+PublicServerMessage:
+  description: |
+    サーバ → 来場者ページ（`/ws/public/events/{eventId}`）
+    - congestion.updated: いずれかのフロアの混雑区分が変わった。全フロアの状況を送る
+  oneOf:
+    - type: object
+      required:
+        - type
+        - floors
+        - updatedAt
+      properties:
+        type:
+          const: congestion.updated
+        floors:
+          description: 表示順に並んだフロアの混雑状況
+          type: array
+          items:
+            $ref: ./schemas.yaml#/PublicFloor
+        updatedAt:
+          type: string
+          format: date-time

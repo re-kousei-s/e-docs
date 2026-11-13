@@ -1,0 +1,265 @@
+# イベント（Events）
+#
+# 利用者: 主催者・共同主催者
+# イベントの一覧・作成・編集、開始・終了（終了時に人数も 0 に戻す）、ダッシュボードの初期表示。
+# 開始・終了は、イベント内の全カメラ端末の認識の一括開始・停止を兼ねる。
+# ダッシュボードの以降の更新は realtime.yaml の /ws/events/{eventId} で受け取る。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events                                    → events
+#   /events/{eventId}                          → events_eventId
+#   /events/{eventId}/start                    → events_eventId_start
+#   /events/{eventId}/end                      → events_eventId_end
+#   /events/{eventId}/dashboard                → events_eventId_dashboard
+# ============================================================
+
+# /events
+events:
+  get:
+    tags:
+      - Events
+    summary: イベント一覧を取得する
+    description: |
+      自分が主催・共同主催しているイベントを、状態付きで取得する。
+    operationId: listEvents
+    responses:
+      '200':
+        description: イベント一覧
+        content:
+          application/json:
+            schema:
+              description: イベント一覧（自分が主催・共同主催しているもの）
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/EventSummary
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  post:
+    tags:
+      - Events
+    summary: イベントを作成する
+    description: |
+      イベントを作成する。フロアを 1 つ以上含める必要がある。
+      作成者はそのイベントの OWNER になる。
+    operationId: createEvent
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - name
+              - floors
+            properties:
+              name:
+                $ref: ../components/schemas.yaml#/EventName
+              iconUrl:
+                $ref: ../components/schemas.yaml#/ImageUrl
+              floors:
+                description: 作成時に追加するフロア（1 つ以上）。配列の順が表示順
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      $ref: ../components/schemas.yaml#/FloorName
+            additionalProperties: false
+    responses:
+      '201':
+        description: 作成したイベント
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/EventDetail
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}
+events_eventId:
+  get:
+    tags:
+      - Events
+    summary: イベントの詳細を取得する
+    description: |
+      イベントの詳細とフロア一覧を取得する。
+      フロアごとの `deviceCount` が 0 なら、イベント開始前に「カメラ未設置のフロアがあります」と警告する。
+    operationId: getEvent
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: イベントの詳細
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/EventDetail
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  patch:
+    tags:
+      - Events
+    summary: イベントを編集する
+    description: |
+      イベント名・アイコンを変更する。
+    operationId: updateEvent
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            minProperties: 1
+            properties:
+              name:
+                $ref: ../components/schemas.yaml#/EventName
+              iconUrl:
+                oneOf:
+                  - $ref: ../components/schemas.yaml#/ImageUrl
+                  - type: 'null'
+            additionalProperties: false
+    responses:
+      '200':
+        description: 変更後のイベント
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/EventDetail
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/start
+events_eventId_start:
+  post:
+    tags:
+      - Events
+    summary: イベントを開始する
+    description: |-
+      イベントを開始する。イベント内の全カメラ端末の認識をまとめて開始する（スマホには状態メッセージで伝わる）。
+      途中で 1 台だけ止める・再開するときは `PUT /devices/{deviceId}/recognize`。
+      カメラ未設置のフロアがあっても開始はできる（警告はクライアントで出す）。
+    operationId: startEvent
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: 開始後のイベント
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/EventDetail
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（すでに開始済み・終了済み）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/end
+events_eventId_end:
+  post:
+    tags:
+      - Events
+    summary: イベントを終了する
+    description: |-
+      イベントを終了する。イベント内の全カメラ端末の認識をまとめて停止し、全フロアの人数を 0 に戻す（閉場）。
+      人数を 0 に戻すだけの API はない。端末は削除されず、次に開始するまでそのフロアに残る。
+      終了後も通過の履歴は参照できる。
+    operationId: endEvent
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: 終了後のイベント
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/EventDetail
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（開始前・終了済み）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /events/{eventId}/dashboard
+events_eventId_dashboard:
+  get:
+    tags:
+      - Events
+    summary: ダッシュボードを取得する
+    description: |
+      フロアごとの人数・混雑区分・スタッフ人数・カメラ端末の状態を取得する。
+      初期表示に使い、以降の更新は WebSocket `/ws/events/{eventId}` で受け取る。
+    operationId: getDashboard
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '200':
+        description: ダッシュボード
+        content:
+          application/json:
+            schema:
+              description: 混雑情報ダッシュボード
+              type: object
+              required:
+                - eventId
+                - status
+                - floors
+                - updatedAt
+              properties:
+                eventId:
+                  type: string
+                  format: uuid
+                status:
+                  $ref: ../components/schemas.yaml#/EventStatus
+                floors:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/FloorStatus
+                updatedAt:
+                  type: string
+                  format: date-time
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

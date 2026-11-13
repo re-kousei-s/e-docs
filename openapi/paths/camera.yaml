@@ -1,0 +1,140 @@
+# カメラ端末・スマホ側（Camera）
+#
+# 利用者: カメラ端末（スマホの送信ページ・Android アプリ。technical-verification の mobile/ と backend/web/sender.html）
+# スマホは管理画面で追加された端末の一覧から自分の端末を選び、あとはサーバーの指示に従うだけ。
+# どれも認証なし（検証どおり。LAN の中で使う前提）。
+# 映像の送信と、サーバーからの指示（認識の開始・停止、fps、カメラの設定、線）は realtime.yaml の /ws/devices/{deviceId}（WebSocket 1 本）。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /camera/devices                            → camera_devices
+#   /camera/devices/{deviceId}                 → camera_devices_deviceId
+#   /camera/devices/{deviceId}/result          → camera_devices_deviceId_result
+# ============================================================
+
+# /camera/devices
+camera_devices:
+  get:
+    tags:
+      - Camera
+    summary: 端末の一覧を取得する（スマホの端末選択）
+    description: |-
+      スマホが自分の端末を選ぶための一覧。全イベント・全主催者の端末を、フロアごとにまとめて返す（検証どおり）。認証なし。
+      端末の追加は管理画面だけ（`POST /devices`）。スマホからは追加できない。
+    operationId: listCameraDevices
+    security: []
+    responses:
+      '200':
+        description: フロアごとの端末一覧
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                required:
+                  - eventId
+                  - eventName
+                  - floorId
+                  - floorName
+                  - devices
+                properties:
+                  eventId:
+                    type: string
+                    format: uuid
+                  eventName:
+                    $ref: ../components/schemas.yaml#/EventName
+                  floorId:
+                    type: string
+                    format: uuid
+                  floorName:
+                    $ref: ../components/schemas.yaml#/FloorName
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - name
+                        - phoneOnline
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        phoneOnline:
+                          description: すでに別のスマホが接続しているか
+                          type: boolean
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /camera/devices/{deviceId}
+camera_devices_deviceId:
+  get:
+    tags:
+      - Camera
+    summary: 端末の設定と状況を取得する
+    description: |-
+      スマホの画面に出す、端末の設定（線）と受信・カウントの状況。スマホは 2 秒ごとに読む。認証なし。
+      認識の開始・停止、fps、カメラの設定、線は、WebSocket（`/ws/devices/{deviceId}`）の状態メッセージでも届く。
+    operationId: getCameraDevice
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '200':
+        description: 端末の設定と状況
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: ../components/schemas.yaml#/Device
+                - type: object
+                  required:
+                    - lineCounts
+                    - floorEstimate
+                  properties:
+                    lineCounts:
+                      description: 線の名前 → その線の IN/OUT
+                      type: object
+                      additionalProperties:
+                        type: object
+                        required:
+                          - in
+                          - out
+                        properties:
+                          in:
+                            type: integer
+                          out:
+                            type: integer
+                    floorEstimate:
+                      $ref: ../components/schemas.yaml#/FloorEstimate
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（登録されていない端末）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /camera/devices/{deviceId}/result
+camera_devices_deviceId_result:
+  get:
+    tags:
+      - Camera
+    summary: 最新の認識結果を取得する
+    description: |-
+      worker が出した最新の認識結果（検出枠・追跡 ID・最近の通過）。スマホが映像に重ねる。認証なし。
+      結果がまだ無い・古い場合は、空の結果を返す。
+    operationId: getCameraResult
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/DeviceId
+    responses:
+      '200':
+        description: 最新の認識結果
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/RecognitionResult
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError

@@ -1,0 +1,189 @@
+# 機材の貸与・返却（Rentals）
+#
+# 利用者: 主催者・共同主催者
+# 貸与できる機材とプランの取得、貸与申請（外部決済ページの URL を返す）、貸与履歴、返却発送の登録。
+# 決済結果の受信は system.yaml の /webhooks/payment。運営側の発送・返却受理は対象外。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /rentals/catalog                           → rentals_catalog
+#   /rentals                                   → rentals
+#   /rentals/{rentalId}/return                 → rentals_rentalId_return
+# ============================================================
+
+# /rentals/catalog
+rentals_catalog:
+  get:
+    tags:
+      - Rentals
+    summary: 貸与できる機材とプランを取得する
+    description: |
+      貸与申請フォームに表示する機材・単価・プラン・運送手数料を取得する。
+    operationId: getRentalCatalog
+    responses:
+      '200':
+        description: 機材とプラン
+        content:
+          application/json:
+            schema:
+              description: 貸与できる機材とプラン
+              type: object
+              required:
+                - items
+                - plans
+                - shippingFee
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/RentalItem
+                plans:
+                  type: array
+                  items:
+                    $ref: ../components/schemas.yaml#/RentalPlan
+                shippingFee:
+                  description: 運送手数料
+                  $ref: ../components/schemas.yaml#/Price
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /rentals
+rentals:
+  get:
+    tags:
+      - Rentals
+    summary: 貸与履歴を取得する
+    description: |
+      自分の貸与申請を新しい順に取得する（貸与中・返却済みなど）。
+    operationId: listRentals
+    responses:
+      '200':
+        description: 貸与履歴
+        content:
+          application/json:
+            schema:
+              description: 貸与履歴（新しい順）
+              type: array
+              items:
+                $ref: ../components/schemas.yaml#/Rental
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  post:
+    tags:
+      - Rentals
+    summary: 貸与を申請する
+    description: |
+      機材・数量・プラン・送付先を指定して申請し、外部決済サービスの決済ページ URL を受け取る。
+      決済が完了すると `/webhooks/payment` で確定し、申請完了メールを送る（内部処理）。
+    operationId: createRental
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - planId
+              - lines
+              - shippingAddress
+            properties:
+              planId:
+                type: string
+                format: uuid
+              lines:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required:
+                    - itemId
+                    - quantity
+                  properties:
+                    itemId:
+                      type: string
+                      format: uuid
+                    quantity:
+                      type: integer
+                      minimum: 1
+                      maximum: 99
+              shippingAddress:
+                $ref: ../components/schemas.yaml#/ShippingAddress
+            additionalProperties: false
+    responses:
+      '201':
+        description: 申請した貸与と決済ページ
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rental
+                - checkoutUrl
+              properties:
+                rental:
+                  $ref: ../components/schemas.yaml#/Rental
+                checkoutUrl:
+                  description: 外部決済サービスの決済ページ URL。クライアントはここへ遷移する
+                  type: string
+                  format: uri
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '422':
+        $ref: ../components/responses.yaml#/UnprocessableEntity
+        description: Unprocessable Entity（在庫不足・販売終了の機材）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /rentals/{rentalId}/return
+rentals_rentalId_return:
+  post:
+    tags:
+      - Rentals
+    summary: 返却物の発送を登録する
+    description: |
+      返却物を発送したことを伝票番号付きで登録する。状態は RETURN_SHIPPED になる。
+      運営側が受理すると RETURNED になる（運営側の操作は対象外）。
+    operationId: registerReturnShipment
+    parameters:
+      - $ref: ../components/parameters.yaml#/RentalId
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - trackingNumber
+            properties:
+              trackingNumber:
+                description: 返却時の伝票番号
+                type: string
+                examples:
+                  - 1234-5678-9012
+            additionalProperties: false
+    responses:
+      '200':
+        description: 更新後の貸与
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/Rental
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '403':
+        $ref: ../components/responses.yaml#/Forbidden
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（貸与中でない）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+

@@ -1,0 +1,209 @@
+# E展 混雑可視化システム API のエントリポイント
+#
+# ここには API 全体の情報だけを書き、エンドポイントの中身は paths/ に置く。
+# - info / servers: API の概要と接続先（本番ドメインは未定）
+# - tags: リソースの区分。paths/ のファイル 1 つがタグ 1 つに対応する
+# - paths: 全エンドポイントの一覧。各パスは "./paths/<ファイル>.yaml#/<キー>" を参照する
+# - components.securitySchemes: 認証方式（OrganizerAuth / StaffAuth）
+# - security: 既定の認証（OrganizerAuth）。スタッフ・認証なし（カメラ端末・来場者など）のエンドポイントは各 paths で上書きする
+#
+# エンドポイントを追加するときは、paths/ の該当ファイルに定義を書き、ここの paths に 1 行追加する。
+# ============================================================
+
+openapi: 3.1.1
+info:
+  title: "E展 混雑可視化システム API"
+  version: 0.1.0
+  description: |
+    カメラ映像で来場者の出入りを計測し、フロアごとの混雑状況を可視化するシステムの API。
+
+    利用者と認証方式
+    - 主催者・共同主催者: Google ログインで発行したトークン（OrganizerAuth）
+    - カメラ端末（スマホ）: 認証なし。管理画面で追加した端末を一覧から選ぶ（technical-verification どおり。LAN の中で使う前提）
+    - スタッフ: スタッフ画面の初回アクセスで発行するトークン（StaffAuth）
+    - 来場者: 認証なし
+  license:
+    name: UNLICENSED
+    url: "https://docs.npmjs.com/cli/v11/configuring-npm/package-json#license"
+
+servers:
+  - url: "https://api.example.com/v1"
+    description: "Production。TODO: 本番ドメインを決める（現状: 仮の api.example.com）"
+  - url: "http://localhost:8080/v1"
+    description: Local development
+
+tags:
+  - name: Auth
+    description: 認証に関するエンドポイント群
+  - name: Users
+    description: 自分の情報（宛先）に関するエンドポイント群
+  - name: Events
+    description: イベントの作成・開始・終了とダッシュボード
+  - name: Floors
+    description: フロアと混雑基準・人数の補正・スタッフ人数
+  - name: Members
+    description: 共同主催者の招待と管理
+  - name: VisitorPage
+    description: 来場者用画面の設定
+  - name: Devices
+    description: カメラ端末の追加・線・カメラの設定・認識の開始/停止（主催者側）
+  - name: Camera
+    description: スマホが端末を選び、設定と認識結果を読む（認証なし）
+  - name: Crossings
+    description: 線の通過（IN/OUT）の履歴とリセット
+  - name: Staff
+    description: スタッフの入退室
+  - name: Public
+    description: 来場者ページ（認証なし）
+  - name: Rentals
+    description: 機材の貸与・返却
+  - name: Realtime
+    description: WebSocket（接続のみ定義。メッセージは components/messages.yaml を参照）
+  - name: System
+    description: ヘルスチェック・システムの状況・外部システム連携
+
+paths:
+  # auth
+  /auth/google:
+    $ref: "./paths/auth.yaml#/auth_google"
+  /auth/refresh:
+    $ref: "./paths/auth.yaml#/auth_refresh"
+  /auth/signout:
+    $ref: "./paths/auth.yaml#/auth_signout"
+  /auth/me:
+    $ref: "./paths/auth.yaml#/auth_me"
+
+  # users
+  /users/me/shipping-address:
+    $ref: "./paths/users.yaml#/users_me_shipping-address"
+
+  # events
+  /events:
+    $ref: "./paths/events.yaml#/events"
+  /events/{eventId}:
+    $ref: "./paths/events.yaml#/events_eventId"
+  /events/{eventId}/start:
+    $ref: "./paths/events.yaml#/events_eventId_start"
+  /events/{eventId}/end:
+    $ref: "./paths/events.yaml#/events_eventId_end"
+  /events/{eventId}/dashboard:
+    $ref: "./paths/events.yaml#/events_eventId_dashboard"
+
+  # floors
+  /events/{eventId}/floors:
+    $ref: "./paths/floors.yaml#/events_eventId_floors"
+  /events/{eventId}/floors/order:
+    $ref: "./paths/floors.yaml#/events_eventId_floors_order"
+  /floors/{floorId}:
+    $ref: "./paths/floors.yaml#/floors_floorId"
+  /floors/{floorId}/congestion-thresholds:
+    $ref: "./paths/floors.yaml#/floors_floorId_congestion-thresholds"
+  /floors/{floorId}/count:
+    $ref: "./paths/floors.yaml#/floors_floorId_count"
+  /floors/{floorId}/staff-count:
+    $ref: "./paths/floors.yaml#/floors_floorId_staff-count"
+
+  # members
+  /events/{eventId}/members:
+    $ref: "./paths/members.yaml#/events_eventId_members"
+  /events/{eventId}/members/{userId}:
+    $ref: "./paths/members.yaml#/events_eventId_members_userId"
+  /events/{eventId}/invitations:
+    $ref: "./paths/members.yaml#/events_eventId_invitations"
+  /invitations/accept:
+    $ref: "./paths/members.yaml#/invitations_accept"
+
+  # visitor page
+  /events/{eventId}/visitor-page:
+    $ref: "./paths/visitor-page.yaml#/events_eventId_visitor-page"
+  /events/{eventId}/visitor-page/images:
+    $ref: "./paths/visitor-page.yaml#/events_eventId_visitor-page_images"
+
+  # devices（主催者側）
+  /devices:
+    $ref: "./paths/devices.yaml#/devices"
+  /devices/{deviceId}:
+    $ref: "./paths/devices.yaml#/devices_deviceId"
+  /devices/{deviceId}/lines:
+    $ref: "./paths/devices.yaml#/devices_deviceId_lines"
+  /devices/{deviceId}/camera-settings:
+    $ref: "./paths/devices.yaml#/devices_deviceId_camera-settings"
+  /devices/{deviceId}/recognize:
+    $ref: "./paths/devices.yaml#/devices_deviceId_recognize"
+  /devices/{deviceId}/frame.jpg:
+    $ref: "./paths/devices.yaml#/devices_deviceId_frame.jpg"
+
+  # camera（スマホ側）
+  /camera/devices:
+    $ref: "./paths/camera.yaml#/camera_devices"
+  /camera/devices/{deviceId}:
+    $ref: "./paths/camera.yaml#/camera_devices_deviceId"
+  /camera/devices/{deviceId}/result:
+    $ref: "./paths/camera.yaml#/camera_devices_deviceId_result"
+
+  # crossings（通過の履歴）
+  /events/{eventId}/crossings:
+    $ref: "./paths/crossings.yaml#/events_eventId_crossings"
+  /floors/{floorId}/crossings:
+    $ref: "./paths/crossings.yaml#/floors_floorId_crossings"
+  /devices/{deviceId}/crossings:
+    $ref: "./paths/crossings.yaml#/devices_deviceId_crossings"
+
+  # staff
+  /events/{eventId}/staff:
+    $ref: "./paths/staff.yaml#/events_eventId_staff"
+  /staff/me:
+    $ref: "./paths/staff.yaml#/staff_me"
+  /floors/{floorId}/staff/enter:
+    $ref: "./paths/staff.yaml#/floors_floorId_staff_enter"
+  /floors/{floorId}/staff/exit:
+    $ref: "./paths/staff.yaml#/floors_floorId_staff_exit"
+
+  # public（来場者）
+  /public/events/{eventId}:
+    $ref: "./paths/public.yaml#/public_events_eventId"
+
+  # rentals
+  /rentals/catalog:
+    $ref: "./paths/rentals.yaml#/rentals_catalog"
+  /rentals:
+    $ref: "./paths/rentals.yaml#/rentals"
+  /rentals/{rentalId}/return:
+    $ref: "./paths/rentals.yaml#/rentals_rentalId_return"
+
+  # realtime（WebSocket）
+  /ws/devices/{deviceId}:
+    $ref: "./paths/realtime.yaml#/ws_devices_deviceId"
+  /ws/devices/{deviceId}/live:
+    $ref: "./paths/realtime.yaml#/ws_devices_deviceId_live"
+  /ws/events/{eventId}:
+    $ref: "./paths/realtime.yaml#/ws_events_eventId"
+  /ws/public/events/{eventId}:
+    $ref: "./paths/realtime.yaml#/ws_public_events_eventId"
+
+  # system
+  /health:
+    $ref: "./paths/system.yaml#/health"
+  /ready:
+    $ref: "./paths/system.yaml#/ready"
+  /webhooks/payment:
+    $ref: "./paths/system.yaml#/webhooks_payment"
+  /system/status:
+    $ref: "./paths/system.yaml#/system_status"
+
+components:
+  securitySchemes:
+    OrganizerAuth:
+      description: 主催者・共同主催者。`/auth/google` で発行したアクセストークン
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    StaffAuth:
+      description: |
+        スタッフ。`/events/{eventId}/staff` で発行したスタッフトークン。
+        スタッフ画面（ブラウザ）のローカルストレージに保存し、`Authorization: Bearer <スタッフトークン>` ヘッダで送る。
+      type: http
+      scheme: bearer
+
+security:
+  - OrganizerAuth: []

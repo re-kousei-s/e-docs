@@ -1,0 +1,148 @@
+# 認証（Auth）
+#
+# 利用者: 主催者・共同主催者
+# Google ログインでのトークン発行・更新・ログアウトと、ログイン中ユーザの取得。
+# /auth/google と /auth/refresh は認証なし（security: []）。それ以外は OrganizerAuth。
+# sign up と sign in は分けない（初回ログイン時にユーザを作る）。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /auth/google                               → auth_google
+#   /auth/refresh                              → auth_refresh
+#   /auth/signout                              → auth_signout
+#   /auth/me                                   → auth_me
+# ============================================================
+
+# /auth/google
+auth_google:
+  post:
+    tags:
+      - Auth
+    summary: Google でログインする
+    description: |
+      Google の認可コードでログインし、トークンを発行する。
+      初めてのアカウントならユーザを作成する（sign up と sign in を兼ねる）。
+    operationId: authenticateWithGoogle
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - code
+              - redirectUri
+            properties:
+              code:
+                description: Google の認可コード
+                type: string
+              redirectUri:
+                description: 認可リクエスト時に使った redirect_uri
+                type: string
+                format: uri
+            additionalProperties: false
+    responses:
+      '200':
+        description: ログイン成功
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/TokenResponse
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '502':
+        $ref: ../components/responses.yaml#/BadGateway
+
+# /auth/refresh
+auth_refresh:
+  post:
+    tags:
+      - Auth
+    summary: トークンを更新する
+    description: |
+      リフレッシュトークンで新しいトークンを発行する。
+    operationId: refreshToken
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/RefreshTokenRequest
+    responses:
+      '200':
+        description: 更新成功
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/TokenResponse
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+
+# /auth/signout
+auth_signout:
+  post:
+    tags:
+      - Auth
+    summary: ログアウトする
+    description: |
+      リフレッシュトークンを無効にする。
+    operationId: signOut
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/RefreshTokenRequest
+    responses:
+      '204':
+        description: ログアウト成功
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+
+# /auth/me
+auth_me:
+  get:
+    tags:
+      - Auth
+    summary: ログイン中のユーザを取得する
+    description: |
+      設定画面の「ログイン中アカウント」に表示する。
+    operationId: getCurrentUser
+    responses:
+      '200':
+        description: ログイン中のユーザ
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - email
+                - name
+                - iconUrl
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                email:
+                  type: string
+                  format: email
+                name:
+                  type:
+                    - string
+                    - 'null'
+                iconUrl:
+                  oneOf:
+                    - $ref: ../components/schemas.yaml#/ImageUrl
+                    - type: 'null'
+              additionalProperties: false
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+

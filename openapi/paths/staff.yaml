@@ -1,0 +1,141 @@
+# スタッフ（Staff）
+#
+# 利用者: スタッフ（スタッフ画面）
+# スタッフ画面での登録・状態取得・フロアへの入室/退室。
+# 初回アクセスで /events/{eventId}/staff を呼んでトークンを受け取り、以降は StaffAuth。
+# 主催者が設定するスタッフ人数は floors.yaml の staff-count。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /events/{eventId}/staff                    → events_eventId_staff
+#   /staff/me                                  → staff_me
+#   /floors/{floorId}/staff/enter              → floors_floorId_staff_enter
+#   /floors/{floorId}/staff/exit               → floors_floorId_staff_exit
+# ============================================================
+
+# /events/{eventId}/staff
+events_eventId_staff:
+  post:
+    tags:
+      - Staff
+    summary: スタッフとして登録する
+    description: |
+      スタッフ画面を初めて開いたときに呼び、スタッフトークンを発行する。
+      トークンはスタッフ画面のローカルストレージに保存し、以降は Authorization ヘッダで送る。
+      認証なし（security: []）。スタッフ画面のリンク（eventId を含む）を知っていれば誰でも登録できる。登録できる人は絞らない。
+    operationId: registerStaff
+    security: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/EventId
+    responses:
+      '201':
+        description: 登録成功
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - staffId
+                - staffToken
+              properties:
+                staffId:
+                  type: string
+                  format: uuid
+                staffToken:
+                  description: "以降のスタッフ API で使うトークン。ローカルストレージに保存し、`Authorization: Bearer` ヘッダで送る"
+                  type: string
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（イベント終了済み）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /staff/me
+staff_me:
+  get:
+    tags:
+      - Staff
+    summary: スタッフ画面の表示内容を取得する
+    description: |
+      滞在中のフロアと選べるフロアを取得する。画面を開き直したときにボタンの状態を戻すのに使う。
+    operationId: getStaffMe
+    security:
+      - StaffAuth: []
+    responses:
+      '200':
+        description: スタッフ画面の表示内容
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/StaffMe
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/staff/enter
+floors_floorId_staff_enter:
+  post:
+    tags:
+      - Staff
+    summary: フロアに入室する
+    description: |
+      スタッフ画面の「入室」ボタン。フロアのスタッフ在室数を +1 し、混雑区分を再判定する。
+      別のフロアに滞在中なら、そのフロアから自動で退室してから入室する。
+    operationId: enterFloor
+    security:
+      - StaffAuth: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    responses:
+      '200':
+        description: 入室後の状態
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/StaffMe
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（フロアが存在しない）
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（すでにこのフロアにいる）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
+# /floors/{floorId}/staff/exit
+floors_floorId_staff_exit:
+  post:
+    tags:
+      - Staff
+    summary: フロアから退室する
+    description: |
+      スタッフ画面の「退室」ボタン。フロアのスタッフ在室数を -1 し、混雑区分を再判定する。
+    operationId: exitFloor
+    security:
+      - StaffAuth: []
+    parameters:
+      - $ref: ../components/parameters.yaml#/FloorId
+    responses:
+      '200':
+        description: 退室後の状態
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/StaffMe
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（フロアが存在しない）
+      '409':
+        $ref: ../components/responses.yaml#/Conflict
+        description: Conflict（このフロアにいない）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+

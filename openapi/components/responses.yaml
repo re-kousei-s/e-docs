@@ -1,0 +1,77 @@
+# エラーレスポンス
+#
+# HTTP ステータスごとのエラーレスポンス。本文はすべて application/problem+json の ProblemDetail。
+# paths/ から参照するときに description を上書きして、そのエンドポイントでのエラー理由を書く。
+# 例: "409": { $ref: "../components/responses.yaml#/Conflict", description: "Conflict（すでに開始済み）" }
+# ============================================================
+
+BadRequest:
+  description: Bad Request
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+Unauthorized:
+  description: Unauthorized
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+Forbidden:
+  description: Forbidden
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+NotFound:
+  description: Not Found
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+Conflict:
+  description: Conflict
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+ContentTooLarge:
+  description: Content Too Large
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+UnsupportedMediaType:
+  description: Unsupported Media Type
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+UnprocessableEntity:
+  description: Unprocessable Entity
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+InternalServerError:
+  description: Internal Server Error
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+
+BadGateway:
+  description: Bad Gateway
+  content:
+    application/problem+json:
+      schema:
+        $ref: ./schemas.yaml#/ProblemDetail
+

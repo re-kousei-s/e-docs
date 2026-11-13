@@ -1,0 +1,60 @@
+# 自分の情報（Users）
+#
+# 利用者: 主催者・共同主催者
+# 貸与機材の送付先（宛先情報）の取得・登録。
+# 貸与申請フォームの初期値として使う。申請時の送付先は rentals.yaml の申請ボディに別途スナップショットとして入る。
+#
+# このファイルのパス（openapi.yaml から "./paths/<file>.yaml#/<キー>" で参照）:
+#   /users/me/shipping-address                 → users_me_shipping-address
+# ============================================================
+
+# /users/me/shipping-address
+users_me_shipping-address:
+  get:
+    tags:
+      - Users
+    summary: 宛先情報を取得する
+    description: |
+      貸与機材の送付先として登録した宛先を取得する。
+    operationId: getShippingAddress
+    responses:
+      '200':
+        description: 宛先情報
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/ShippingAddress
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '404':
+        $ref: ../components/responses.yaml#/NotFound
+        description: Not Found（未登録）
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+  put:
+    tags:
+      - Users
+    summary: 宛先情報を登録・変更する
+    description: |
+      貸与機材の送付先を登録・変更する。貸与申請のフォームに初期値として入る。
+    operationId: putShippingAddress
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ShippingAddress
+    responses:
+      '200':
+        description: 登録後の宛先情報
+        content:
+          application/json:
+            schema:
+              $ref: ../components/schemas.yaml#/ShippingAddress
+      '400':
+        $ref: ../components/responses.yaml#/BadRequest
+      '401':
+        $ref: ../components/responses.yaml#/Unauthorized
+      '500':
+        $ref: ../components/responses.yaml#/InternalServerError
+
