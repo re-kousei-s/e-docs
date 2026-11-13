@@ -6,9 +6,8 @@
 | --- | --- |
 | HTTP | REST エンドポイント |
 | WS | WebSocket（双方向・常時接続。サーバ→端末の指示やリアルタイム更新） |
-| SSE | Server-Sent Events（サーバ→クライアントの一方向プッシュ。閲覧専用向き） |
 | WH | Webhook 受信（外部サービス → こちら） |
-| Stream | 映像ストリーム（プロトコルは要検討：WebRTC / RTMP / WS バイナリ など） |
+| Stream | 映像（H.264 を WebSocket のバイナリで送る。technical-verification どおり） |
 | 内部 | サーバ内部ロジック。外に出さない |
 | イベント | ドメインイベント。他の処理のトリガーになるだけで API ではない |
 | 端末内 | カメラ端末アプリ内で完結 |
@@ -16,7 +15,7 @@
 認証の種類
 
 - 主催者: Google ログインのセッション
-- カメラ端末: 紐付け時に発行する端末トークン
+- カメラ端末（スマホ）: 認証なし。管理画面で追加した端末を一覧から選ぶ（technical-verification どおり）
 - 来場者: 認証なし（eventId でアクセス）
 - スタッフ: スタッフ画面の初回アクセス時にスタッフ ID（トークン）を発行し、ローカルストレージに保存して、以降の入退室で `Authorization: Bearer` ヘッダで送る（ログインなし）
 
@@ -39,8 +38,8 @@
 | イベント詳細取得 | HTTP | `GET /events/{eventId}` | フロア一覧を含める |
 | イベント作成 | HTTP | `POST /events` | body にフロア配列を含めて「1つ以上」をバリデーション |
 | イベント名編集 | HTTP | `PATCH /events/{eventId}` | |
-| イベント開始 | HTTP + イベント | `POST /events/{eventId}/start` | body: カメラ終了用パスワード（任意）。未設置フロアは事前に警告するなら `GET` 側で返すか、`?dryRun` 的に確認。`EventStarted` を発行 → カメラ端末へ WS で観測開始 |
-| イベント終了 | HTTP + イベント | `POST /events/{eventId}/end` | `EventEnded` を発行 → 端末の紐付け解除・観測停止 |
+| イベント開始 | HTTP | `POST /events/{eventId}/start` | イベント内の全端末の認識をまとめて開始する。未設置フロアの警告はクライアントで出す |
+| イベント終了 | HTTP | `POST /events/{eventId}/end` | イベント内の全端末の認識をまとめて停止し、全フロアの人数を 0 に戻す。端末は削除しない |
 | 混雑状況の初期化 | — | `POST /events/{eventId}/end` に統合 | **イベント終了に統合で決定**。専用の API は作らない |
 
 ## フロア
